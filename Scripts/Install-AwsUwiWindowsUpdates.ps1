@@ -258,9 +258,9 @@ Function Install-AwsUwiWindowsUpdates
             if($Categories -contains 'Application'){$categoryIds += '5C9376AB-8CE6-464A-B136-22113DD69801'}
             if($Categories -contains 'Connectors'){$categoryIds += '434DE588-ED14-48F5-8EED-A15E09A991F6'}
             if($Categories -contains 'CriticalUpdates'){$categoryIds += 'E6CF1350-C01B-414D-A61F-263D14D133B4'}
-            if($Categories -contains 'DefinitionUpdates'){$categoryIds += 'e0789628-ce08-4437-be74-2495b842f43b'}
+            if($Categories -contains 'DefinitionUpdates'){$categoryIds += 'E0789628-CE08-4437-BE74-2495B842F43B'}
             if($Categories -contains 'DeveloperKits'){$categoryIds += 'E140075D-8433-45C3-AD87-E72345B36078'}
-            if($Categories -contains 'Drivers'){$categoryIds += 'ebfc1fc5-71a4-4f7b-9aca-3b9a503104a0'}                        
+            if($Categories -contains 'Drivers'){$categoryIds += 'EBFC1FC5-71A4-4F7B-9ACA-3B9A503104A0'}                        
             if($Categories -contains 'FeaturePacks'){$categoryIds += 'B54E7D24-7ADD-428F-8B75-90A396FA584F'}
             if($Categories -contains 'Guidance'){$categoryIds += '9511D615-35B2-47BB-927F-F73D8E9260BB'}
             if($Categories -contains 'Microsoft'){$categoryIds += '56309036-4c77-4dd9-951a-99ee9c246a94'}
@@ -299,7 +299,7 @@ Function Install-AwsUwiWindowsUpdates
                 $searchResult = $updateSearcher.Search($searchString)
                 $retryCount = $retryAttempts
             } 
-            catch [Exception]
+            catch
             {    
                 $retryCount++
 
@@ -492,7 +492,7 @@ Function Install-AwsUwiWindowsUpdates
                                 $Logger.Info("Successfully Downloaded: $($update.Title) - Published date: $($update.LastDeploymentChangeTime.ToString("MM/dd/yyyy"))")
                                 $retryCount = $retryAttempts                    
                             }
-                            catch [Exception]
+                            catch
                             {
                                 $retryCount++
                                 
@@ -517,7 +517,7 @@ Function Install-AwsUwiWindowsUpdates
             #-------------------------------------------------------------------------------------------------
             #	Step 5: Install updates
             #-------------------------------------------------------------------------------------------------   
-            $kbs = @()
+            $installedKbs = @()
             if($downloadedCollection.Count -gt 0)
             {
                 [int]$installErrors = 0
@@ -543,14 +543,17 @@ Function Install-AwsUwiWindowsUpdates
 
                             $Logger.Info($message)
                         } 
-                        catch [Exception]
+                        catch
                         {
                             $Logger.Error("Installation of $($update.Title) resulted in error: $($_)")
                             $installErrors++
                         }
                     }
-
-                    $kbs += $update.KBArticleIDs
+                
+                    # Create an object to hold the data of what update was installed to be used in the state file
+                    $hash = Get-StringHash "$($update.Title)$($update.KBArticleIDs)"
+                    $properties = @{Title=$update.Title;KBArticleIDs=$update.KBArticleIDs;Hash=$hash;}
+                    $installedKbs += New-Object -TypeName PSObject -Property $properties                    
                 }
             }
 
@@ -564,51 +567,48 @@ Function Install-AwsUwiWindowsUpdates
             }
 
             #-------------------------------------------------------------------------------------------------
-            #    Step 7: - Safeguard against an infinite loop.  
-            #    This step will track the amount of attempts KB's are installed.  It will create a local
-            #    state file to ensure tracking between subsequent reboots.  If more than 3 attempts have
-            #    been made to install the same KB, it will exit with a failure.
+            #    Step 7: - If there was an attempt to install the same KB, it will exit with a failure.
             #------------------------------------------------------------------------------------------------- 
-            if($kbs)
+            if($installedKbs)
             {
-                # If the state file exists, store the KBs into a hashtable
                 $stateFile = Join-Path $WorkingDirectory 'state.json'
-                $properties = @{}
+                $stateFileObjs = @()
                 if(Test-Path $stateFile)
                 {
-                    $objProperties = (Get-Content -Path $stateFile -Raw | ConvertFrom-Json).psobject.properties
-                    foreach ($property in $objProperties)
-                    { 
-                        $properties.Add($property.Name, $property.Value)
+                    try
+                    {
+                        $stateFileObjs = Get-Content -Path $stateFile -Raw | ConvertFrom-Json
+                    }
+                    catch
+                    {
+                        $Logger.Error("Attempt to read state file resulted in error: $($_)")
+                        exit -1
                     }
                 }
-
-                foreach($kb in $kbs)
+                
+                foreach($installedKb in $installedKbs)
                 {
-                    # Check to see if the KB is already in the state file, if so, increment counter
-                    $match = $properties.GetEnumerator() | Where-Object { $_.Key -eq $kb }                           
+                    $match = $stateFileObjs | Where-Object {$_.Hash -eq $installedKb.Hash}
                     if($match)
                     {
-                        # The KB exists, so increment the counter
-                        $properties[$kb] += 1
+                        $Logger.Error("Multiple attempts to install the same KB failed: $($installedKb.Title)")
+                        exit -1   
                     }
                     else
                     {
-                        # The KB is new so add it to the hashtable
-                        $properties.Add($kb,[int]1)
+                        $stateFileObjs += $installedKb
                     }
                 }
 
-                # 3 or more attempts is considered a failure
-                $failedKBs = $properties.GetEnumerator() | Where-Object { $_.Value -ge 3 } 
-                if($failedKBs)
+                try
                 {
-                    $Logger.Error("Multiple attempts to install the following KBs failed: $($failedKBs.Key)")
-                    exit -1
-                }  
-
-                # Create/Update the state file
-                New-StateFile -StateFile $stateFile -Properties $properties -Force | Out-Null
+                    $stateFileObjs | ConvertTo-Json | Out-File $stateFile -Force
+                }
+                catch
+                {
+                    $Logger.Error("Writing state file resulted in error: $($_)")
+                    exit -1 
+                }
             }
 
             #-------------------------------------------------------------------------------------------------
@@ -629,8 +629,8 @@ Function Install-AwsUwiWindowsUpdates
 # SIG # Begin signature block
 # MIIePAYJKoZIhvcNAQcCoIIeLTCCHikCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDK8ZNulsoo776N
-# i1tcrxJPVcG6iaq+rtRjWkz4qXSjxKCCDJwwggXYMIIEwKADAgECAhABVznfx2xi
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCdSritLHu6pnPA
+# ccODuoxa2K/qNIzBv/s0QmhMqaJiWaCCDJwwggXYMIIEwKADAgECAhABVznfx2xi
 # Vuf0Y3KCrPFgMA0GCSqGSIb3DQEBCwUAMGwxCzAJBgNVBAYTAlVTMRUwEwYDVQQK
 # EwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5jb20xKzApBgNV
 # BAMTIkRpZ2lDZXJ0IEVWIENvZGUgU2lnbmluZyBDQSAoU0hBMikwHhcNMTcwNjAx
@@ -703,17 +703,17 @@ Function Install-AwsUwiWindowsUpdates
 # IFNpZ25pbmcgQ0EgKFNIQTIpAhABVznfx2xiVuf0Y3KCrPFgMA0GCWCGSAFlAwQC
 # AQUAoHwwEAYKKwYBBAGCNwIBDDECMAAwGQYJKoZIhvcNAQkDMQwGCisGAQQBgjcC
 # AQQwHAYKKwYBBAGCNwIBCzEOMAwGCisGAQQBgjcCARUwLwYJKoZIhvcNAQkEMSIE
-# ILlHGPZmKgedH78IJc1UaHxbgFjER2HQx1X/uhvwK9HJMA0GCSqGSIb3DQEBAQUA
-# BIIBAGr953HIDJ3yWR+iT3sEu5DubBNJ+bxKyfVKXDaxa9BX+NwVhOd/eFV6KDIo
-# qY1TIfy5mKw4vHaTej2uAMWVuL0Uz25MBhRtII5DvgypaEgAEX3luPM2WtQu5NNE
-# mXXU7WVy1zFPs4T7Aa0wRDWO4st/PHyQJJFUpDA2neDOdbTaL1t7MiOE4139YwId
-# 1fWvZKrU1S13SnqNZerhaTDZEcRRlbO1T366oK7sP5fbHk69Q5nhEKyb9B0QRh+x
-# 1vt3oaJXZVDCEyNg8hftvn9xWs5hJ1VXlySCR2t9S3L+42RF6TAe9a09K3stDi2O
-# MqnrQKc5JCp00Ze79h0GlLujLKmhgg7IMIIOxAYKKwYBBAGCNwMDATGCDrQwgg6w
+# IBX/0PUFb34p2xGQ6qdQ86+Hw6rwg8L5rtTFE71HB8xIMA0GCSqGSIb3DQEBAQUA
+# BIIBAG4lOZNKNLNjE/6Oz1NsHUaVWMflnoFiUajE2iEkcLwCeHj/k5R2Hqv941Y5
+# +e+OxB6XflItXwiprsGDNmHpBEwdr6gaETCj8HiThEFsojveSmi+cTnCeB00Le/d
+# 1M5cW41tV/y9lHdbOg4e84knT8t2uVSbqe0NlSyIaHY7qPyqkElWuLjemTor0Pop
+# jPuGmZ+osbGDxyIbiWAiQn9f9G6CpLVeOeYW0eCMPaZgRCJBoZCup/ouYVUYp7n9
+# 0D2RZa+CZP8FdF9OPFfcXFcRghNfHGx80YCIPsKA367sR27fL78tNpgUAeH7Tg3A
+# w7odDTTaWVjBpjKZgcS18B0Jgmmhgg7IMIIOxAYKKwYBBAGCNwMDATGCDrQwgg6w
 # BgkqhkiG9w0BBwKggg6hMIIOnQIBAzEPMA0GCWCGSAFlAwQCAQUAMHcGCyqGSIb3
-# DQEJEAEEoGgEZjBkAgEBBglghkgBhv1sBwEwMTANBglghkgBZQMEAgEFAAQg+FVr
-# Z8Hw2DWPcJbdxM8jM71wht0CWiFBcY2voLYOMR0CEFcAH02uWWYHoaQtmBOSOjcY
-# DzIwMTgwNTMxMTk1NDI5WqCCC7swggaCMIIFaqADAgECAhAJwPxGyARCE7VZi68o
+# DQEJEAEEoGgEZjBkAgEBBglghkgBhv1sBwEwMTANBglghkgBZQMEAgEFAAQgpBYi
+# lZJ4ladMcK7V/B8USQHpiysMTZRb3r2jD7SQ740CEFNbLGitWHoUrx72Q6fhC48Y
+# DzIwMTgxMDI0MTcxODAxWqCCC7swggaCMIIFaqADAgECAhAJwPxGyARCE7VZi68o
 # T05BMA0GCSqGSIb3DQEBCwUAMHIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdp
 # Q2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5jb20xMTAvBgNVBAMTKERp
 # Z2lDZXJ0IFNIQTIgQXNzdXJlZCBJRCBUaW1lc3RhbXBpbmcgQ0EwHhcNMTcwMTA0
@@ -780,13 +780,13 @@ Function Install-AwsUwiWindowsUpdates
 # SW5jMRkwFwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMTEwLwYDVQQDEyhEaWdpQ2Vy
 # dCBTSEEyIEFzc3VyZWQgSUQgVGltZXN0YW1waW5nIENBAhAJwPxGyARCE7VZi68o
 # T05BMA0GCWCGSAFlAwQCAQUAoIGYMBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRAB
-# BDAcBgkqhkiG9w0BCQUxDxcNMTgwNTMxMTk1NDI5WjAvBgkqhkiG9w0BCQQxIgQg
-# kjzT/d/WKhXC2LGXD4Q8XhizCdUNMjw/jwRmgBZn2lswKwYLKoZIhvcNAQkQAgwx
+# BDAcBgkqhkiG9w0BCQUxDxcNMTgxMDI0MTcxODAxWjAvBgkqhkiG9w0BCQQxIgQg
+# CmJ0aUSOrsvOtHLbAVXeVTVr7Nz4fiQ2246YYlf8mrAwKwYLKoZIhvcNAQkQAgwx
 # HDAaMBgwFgQUQAGRR1yYiR3roQSvRwkbXrbUy8swDQYJKoZIhvcNAQEBBQAEggEA
-# TFzPV0lpjoy5Jfd3W+Lw/AfQZgGsJ1NPn4LFjtRUj9MbOBGsankx9xtuxqSpbQfO
-# gdxNNnw4S9gtPwFV1aTffvPrDpemNxS3jypJkADD4M4qKWyTE5IpVrHeDEc6LVw/
-# HNuhCX6gHkKmAZGS/WxKYNzdelDyTeAcM6BhFnjaj4TIacKAv4Wi0yw92EmpxKcx
-# WwExU+nBwTf4bXXVquFMilyPcfH0iKTQr/VTTMww8JG+LazkM0+Lq3760ocIc+RT
-# fm3Gg05oAgr/nnPf72KO0UHNHSG4s0a3gpcyTS7S4vxINap1h1xV8DbdJmv3YbTy
-# w8iJvsnDB9XX6m7sdioxaA==
+# kIx73Ky2zqRN8opyH7aUT5NJ5Y81m18beVNe97ocSpEXn+1qzPJ3Atk7AiNmO8JT
+# Pcpfo+xcPGTpAlUJrD7xn8Ju/qxJZVLhpjxFir9068b7nDq8AQTlaJ6Blt2Mg5Bg
+# DsniViPJxBhwK8tIz+I9hwW4Ub1rGXBZKP+E1ox2dsDHwBc/2Vl661/LWHFN0Xd7
+# 3ENJU+KoIgqB5YpI4beH5HUnvHfONMPoP+Jjh+/36weK7/m9iK7u/zpIlkgAoRjZ
+# hnNikuGzavMuQ3K191+M0kbGYk9H9a2WRA5Cyg1CQ1rGYiQvCXVxPXnOkLG1cI/G
+# 70Pw7jrFgpUIAjJwQ8jJ0A==
 # SIG # End signature block

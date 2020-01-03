@@ -9,67 +9,47 @@
 # Agreement for the specific language governing permissions and limitations 
 # under the Agreement.
 
-Function New-StateFile
+Function Get-StringHash
 {
     <#
         .SYNOPSIS
-        Creates a state file containing key value pairs.
-                
+        Creates a hash from the string input.
+
         .DESCRIPTION
-        Creates a state file containing key value pairs.
-
-        .PARAMETER StateFile
-        The full local path of the state file.  Must be json or txt file extension.
-
-        .PARAMETER Properties
-        The properties, a hashtable, which is written to the state file.
-
-        .PARAMETER Force
-        If the state file already exists, it will overwrite it.
-
-        .EXAMPLE
-        New-StateFile -StateFile (Join-Path $env:TEMP 'state.json') -Properties @{Value1='1';Value2='2';}
-
-        .EXAMPLE
-        New-StateFile -StateFile (Join-Path $env:TEMP 'state.json') -Properties @{Value1='1';Value2='2';} -Force
+        Creates a hash from the string input.
     #>
-
+    
     [CmdletBinding()]
     
     Param 
     (
         [Parameter(Mandatory=$true)]
-        [ValidatePattern("^.*\.(json|JSON|txt|TXT$)")]
-        [string]$StateFile,
-
-        [Parameter(Mandatory=$true)]
         [ValidateNotNullOrEmpty()]
-        [Hashtable]$Properties,
+        [string]$InputString,
 
         [Parameter(Mandatory=$false)]
-        [switch]$Force
-    )
+        [ValidateNotNullOrEmpty()]
+        [string]$HashName = 'SHA256'
 
-    Process
+    ) 
+        
+    $hashAlgo = [System.Security.Cryptography.HashAlgorithm]::Create($HashName)
+    $hash = $hashAlgo.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($InputString))
+    $hashAlgo.Dispose()
+    
+    $sb = New-Object System.Text.StringBuilder
+    foreach($byte in $hash)
     {
-        if((Test-Path $StateFile) -and (-not $Force))
-        {
-            throw 'State file exists. To overwrite use the Force switch.'
-        }
-
-        if(-not (Test-Path $StateFile) -or $Force)
-        {
-            New-Object PSObject -Property $Properties | ConvertTo-Json | Out-File $StateFile -Force
-        }
-
-        return $StateFile
+        $null = $sb.Append($byte.ToString('X2'))
     }
+    
+    return $sb.ToString()
 }
 # SIG # Begin signature block
 # MIIePAYJKoZIhvcNAQcCoIIeLTCCHikCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDKTo/eEFBZawFZ
-# kDJnUUapxIZHDUcRYBwar1T7J/yPSqCCDJwwggXYMIIEwKADAgECAhABVznfx2xi
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAj9F4XB9NsxLbk
+# cVQGr7ykCsgA+oG3K8SHnaLLR+1aX6CCDJwwggXYMIIEwKADAgECAhABVznfx2xi
 # Vuf0Y3KCrPFgMA0GCSqGSIb3DQEBCwUAMGwxCzAJBgNVBAYTAlVTMRUwEwYDVQQK
 # EwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5jb20xKzApBgNV
 # BAMTIkRpZ2lDZXJ0IEVWIENvZGUgU2lnbmluZyBDQSAoU0hBMikwHhcNMTcwNjAx
@@ -142,17 +122,17 @@ Function New-StateFile
 # IFNpZ25pbmcgQ0EgKFNIQTIpAhABVznfx2xiVuf0Y3KCrPFgMA0GCWCGSAFlAwQC
 # AQUAoHwwEAYKKwYBBAGCNwIBDDECMAAwGQYJKoZIhvcNAQkDMQwGCisGAQQBgjcC
 # AQQwHAYKKwYBBAGCNwIBCzEOMAwGCisGAQQBgjcCARUwLwYJKoZIhvcNAQkEMSIE
-# IApwd11J1oPESP9HiSvZxdhuN/XP/Vht2YTPPCpIFhbIMA0GCSqGSIb3DQEBAQUA
-# BIIBALWTndMR/1FaOfDfK9Xmdeg82cqml8/uqqqC0UMJYX018XTFMKvgILOaEkZf
-# AXlerEDn3MW/katPDGD7+ioGx65ZzqUScn4RN5jz8Q2b7/LLKYn76rAFjNmUaiMF
-# P/JuKHmzEooN1cYSxiVAHk6AucBB6hJwRSFdOxFVd90GfoHRU/Cs0nLfIJ0m6o0m
-# hKXKd40X8NPJxiOO2o9IVYOUhJ+ZXTmbPKahVFhJ5dcCc7m13eC/IsNrx9t6glcg
-# uiKJvRjgdD/R6esP6JB1lyS4kQecVK5FgUxKd4cGcAuIF+/pR3VLqczmpuJgfKAN
-# EzXqMd2lNC3cVcKHbrGG51c059ahgg7IMIIOxAYKKwYBBAGCNwMDATGCDrQwgg6w
+# IGsVNJlhY2wh87qTm2R4/AQPxMXPOVgYTq+LlIto1OunMA0GCSqGSIb3DQEBAQUA
+# BIIBALMyiLfg8riDK/iduYGPoPO77bJ0AMK99uV6pobotFyt5G6mXQmBe6TYEG7s
+# V7oglaC1VbrgTTPSLedQG+B9+FGOE+2DF19gGX4y7ov2tVaZs8W5dgp91zoINUdp
+# 4Te1jfMBvl6MYnvYaNSlhmVh23JdYPwaDWQlRqji/YKOnwIbs0+CH1cWk4FUI8OW
+# vsaQGPmf/9tHBIYRiZCAhFI9iixXV4yFJ6t0/cRl93ZWxUTK2vLWrL5z/d9kH2RE
+# m2s6X6Nc0lsAMphZA6H3fXNg+UTLk2///Ou2xkI8zDMeYJJkg9GRuqfROi6B9Z5z
+# MTHWNvVWBJ94M0cqCYsvvWAi30Whgg7IMIIOxAYKKwYBBAGCNwMDATGCDrQwgg6w
 # BgkqhkiG9w0BBwKggg6hMIIOnQIBAzEPMA0GCWCGSAFlAwQCAQUAMHcGCyqGSIb3
-# DQEJEAEEoGgEZjBkAgEBBglghkgBhv1sBwEwMTANBglghkgBZQMEAgEFAAQgW0G8
-# QGlgWSRNxo7k29FO0pCpC31i1ecx/Yk/kikA0+MCEFdc5OQVb8UY/0JhO8oQYb0Y
-# DzIwMTgwNTMxMTk1NDMxWqCCC7swggaCMIIFaqADAgECAhAJwPxGyARCE7VZi68o
+# DQEJEAEEoGgEZjBkAgEBBglghkgBhv1sBwEwMTANBglghkgBZQMEAgEFAAQgRhKt
+# RPeXv5BmeL2rAAHzFWUkhGIVGaTNsGnzVTbABBECEGbQ/7+TMjxPCqrmCl9dwqUY
+# DzIwMTgxMDI0MTcxNzU5WqCCC7swggaCMIIFaqADAgECAhAJwPxGyARCE7VZi68o
 # T05BMA0GCSqGSIb3DQEBCwUAMHIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdp
 # Q2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5jb20xMTAvBgNVBAMTKERp
 # Z2lDZXJ0IFNIQTIgQXNzdXJlZCBJRCBUaW1lc3RhbXBpbmcgQ0EwHhcNMTcwMTA0
@@ -219,13 +199,13 @@ Function New-StateFile
 # SW5jMRkwFwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMTEwLwYDVQQDEyhEaWdpQ2Vy
 # dCBTSEEyIEFzc3VyZWQgSUQgVGltZXN0YW1waW5nIENBAhAJwPxGyARCE7VZi68o
 # T05BMA0GCWCGSAFlAwQCAQUAoIGYMBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRAB
-# BDAcBgkqhkiG9w0BCQUxDxcNMTgwNTMxMTk1NDMxWjAvBgkqhkiG9w0BCQQxIgQg
-# SccoDo8hNuxl+2VsuM9Y8Y4WgTKRJDG51XSRJkHnWgkwKwYLKoZIhvcNAQkQAgwx
+# BDAcBgkqhkiG9w0BCQUxDxcNMTgxMDI0MTcxNzU5WjAvBgkqhkiG9w0BCQQxIgQg
+# OVS8R7Gv6ANppZjWb3VIq71O0iaFlPjje+fLbttxE9UwKwYLKoZIhvcNAQkQAgwx
 # HDAaMBgwFgQUQAGRR1yYiR3roQSvRwkbXrbUy8swDQYJKoZIhvcNAQEBBQAEggEA
-# ELSqYMWkgLvXhvYYE7TSo882fQ/xClRF/Q0o2Qs7DWSorsOpm8EjmxE1MIsUS/9d
-# xn8QM29dO9jBrc/ZY7zaqk6Tsc/3qJLUWJUAeMDcgzRpkFqdUQ1sYM2KoA/SgVdG
-# mKCfpsWu82YhghOEX8tQzYZ0maIlbNh7cRdfxDU/suEIX4Hy5+YDkcPtRMoUucFL
-# pgVkN9V42N1iRDvG2tJk2bnE14nBtRHosZDELE5KXXO0ucp7IUgWHGsan1d1LQxZ
-# /ePAmeouE0hj4dDVExKkEuqh4wVERVHz9rpr41Jpv9QBKSx0SsY6aKy2kpjqkbZJ
-# 57qLMBiOa+Zq24f2EGZd/g==
+# XZ/52j6NJsIxLZL5c+7Qgc+Ba4QlrxLdNLUmtatoR2dd3Fh4JrW9W6ZSRmMz1613
+# iZvnsfllJnbIiGeSfo57m2jEzauCpq/0z8TKkC0hxAbzEXGszLIP7ImpEkWeiob8
+# PM1W/kdF3uVLR7giNfeOrAk38XJ7PhIs8ctZ7fgm17g8AMu5vaxEiloIoCkspFZd
+# R5fIQ9ZFmpEk5NjEbEdlMeHuQm5D8xk0xaECkTQD6RGXwsURK9YE499X0NyhbolQ
+# awtHgsXQcJcmrnY/vi+FEyVsbmU7xDyORna/PV39ZE7zXvT7zzfgtTultj/U0P6j
+# YHLOfc5qjqCL44PZTZPPyw==
 # SIG # End signature block
